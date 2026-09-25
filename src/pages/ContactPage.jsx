@@ -25,19 +25,23 @@ export default function ContactPage({ showToast }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Client-side rate limiting: restrict submissions to 1 per 30 seconds
+    const lastSubmitTime = localStorage.getItem('last_appointment_submit');
+    const now = Date.now();
+    if (lastSubmitTime && now - parseInt(lastSubmitTime, 10) < 30000) {
+      showToast('Please wait 30 seconds before submitting another request.');
+      return;
+    }
+
     setSubmitting(true);
+    localStorage.setItem('last_appointment_submit', now.toString());
     
     const submissionData = {
       ...formData,
       submittedAt: new Date().toISOString(),
       source: 'Contact Page Web Form'
     };
-
-    // Log to console as required
-    console.log('==================================================');
-    console.log('PURE PLOMBERIE INC - CONTACT FORM SUBMISSION:');
-    console.log(submissionData);
-    console.log('==================================================');
 
     // Save to Supabase backend
     await saveAppointment(submissionData);

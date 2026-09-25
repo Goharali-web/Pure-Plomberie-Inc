@@ -24,8 +24,6 @@ export async function saveAppointment(data) {
       created_at: new Date().toISOString()
     };
 
-    console.log('Pushing appointment payload to Supabase:', payload);
-
     const { data: insertedData, error } = await supabase
       .from('appointments')
       .insert([payload])
@@ -40,7 +38,6 @@ export async function saveAppointment(data) {
       return { success: true, isLocalFallback: true, error: error.message };
     }
 
-    console.log('Successfully saved to Supabase backend:', insertedData);
     return { success: true, data: insertedData };
   } catch (err) {
     console.error('Unexpected error in saveAppointment:', err);

@@ -9,8 +9,8 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem('pure_plomberie_admin_auth') === 'true';
   });
-  const [email, setEmail] = useState('ga480926@gmail.com');
-  const [password, setPassword] = useState('K9$mPq2#vL7n');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
 

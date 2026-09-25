@@ -43,17 +43,22 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Client-side rate limiting: restrict submissions to 1 per 30 seconds
+    const lastSubmitTime = localStorage.getItem('last_quote_submit');
+    const now = Date.now();
+    if (lastSubmitTime && now - parseInt(lastSubmitTime, 10) < 30000) {
+      showToast('Please wait 30 seconds before submitting another quote request.');
+      return;
+    }
+    localStorage.setItem('last_quote_submit', now.toString());
+
     const submissionPayload = {
       ...formData,
       estimatedPriceRange: `$${estimated.min} - $${estimated.max}`,
       submittedAt: new Date().toISOString()
     };
     
-    // Console log submission
-    console.log('=== PURE PLOMBERIE INC - FREE QUOTE SUBMISSION ===');
-    console.log(submissionPayload);
-    console.log('==================================================');
-
     // Save to Supabase
     await saveAppointment(submissionPayload);
 

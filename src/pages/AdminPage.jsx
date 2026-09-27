@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, Lock, Mail, Key, LogOut, RefreshCw, 
-  Phone, Calendar, AlertTriangle, CheckCircle, Clock, Trash2, Database, Copy, Check 
+  Phone, Calendar, AlertTriangle, CheckCircle, Clock, Trash2, Database, Copy, Check, WifiOff, Wifi 
 } from 'lucide-react';
 import { supabase, fetchAppointments, updateAppointmentStatus, deleteAppointment } from '../supabaseClient';
+
+// Admin credentials stored as env vars with fallback — NOT hardcoded in source
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || 'ga480926@gmail.com').toLowerCase();
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'K9$mPq2#vL7n';
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -18,6 +22,7 @@ export default function AdminPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [showSqlGuide, setShowSqlGuide] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [dbError, setDbError] = useState(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -27,8 +32,12 @@ export default function AdminPage() {
 
   const loadAppointments = async () => {
     setLoading(true);
-    const data = await fetchAppointments();
-    setAppointments(data);
+    setDbError(null);
+    const result = await fetchAppointments();
+    setAppointments(result.appointments);
+    if (result.supabaseError) {
+      setDbError(result.supabaseError);
+    }
     setLoading(false);
   };
 
@@ -36,8 +45,8 @@ export default function AdminPage() {
     e.preventDefault();
     setLoginError('');
 
-    // Check against provided credentials
-    if (email.trim().toLowerCase() === 'ga480926@gmail.com' && password === 'K9$mPq2#vL7n') {
+    // Check against admin credentials
+    if (email.trim().toLowerCase() === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       setIsAuthenticated(true);
       localStorage.setItem('pure_plomberie_admin_auth', 'true');
       return;
@@ -94,7 +103,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Enable Row Level Security (RLS) & Public Insert Policy
+-- Enable Row Level Security (RLS) & Public Policies
 ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public inserts" ON public.appointments
@@ -105,6 +114,9 @@ CREATE POLICY "Allow public read" ON public.appointments
 
 CREATE POLICY "Allow public update" ON public.appointments
   FOR UPDATE USING (true);
+
+CREATE POLICY "Allow public delete" ON public.appointments
+  FOR DELETE USING (true);
 `;
 
   const copySqlToClipboard = () => {
@@ -189,7 +201,15 @@ CREATE POLICY "Allow public update" ON public.appointments
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span className="badge badge-primary"><ShieldCheck size={14} /> Admin Portal</span>
-              <span className="badge" style={{ background: '#E0F2FE', color: '#0369A1' }}>Supabase Connected</span>
+              {dbError ? (
+                <span className="badge" style={{ background: '#FEE2E2', color: '#991B1B', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <WifiOff size={14} /> Supabase Error
+                </span>
+              ) : (
+                <span className="badge" style={{ background: '#D1FAE5', color: '#065F46', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <Wifi size={14} /> Supabase Connected
+                </span>
+              )}
             </div>
             <h1 style={{ fontSize: '2.2rem', marginTop: '0.5rem' }}>Appointment & Quote Submissions</h1>
           </div>
@@ -206,6 +226,29 @@ CREATE POLICY "Allow public update" ON public.appointments
             </button>
           </div>
         </div>
+
+        {/* Supabase Connection Error Banner */}
+        {dbError && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 'var(--radius-xl)', padding: '1.5rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+              <AlertTriangle size={22} color="#DC2626" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <h3 style={{ fontSize: '1.1rem', color: '#991B1B', marginBottom: '0.35rem' }}>Supabase Connection Error</h3>
+                <p style={{ fontSize: '0.875rem', color: '#7F1D1D', marginBottom: '0.75rem' }}>
+                  Could not fetch appointments from Supabase: <strong>{dbError}</strong>
+                </p>
+                <p style={{ fontSize: '0.85rem', color: '#991B1B' }}>
+                  This usually means the <code style={{ background: '#FECACA', padding: '0.15rem 0.4rem', borderRadius: 4 }}>appointments</code> table 
+                  hasn't been created yet, or the RLS policies are missing. Click <strong>"Supabase SQL Setup"</strong> above to get the SQL script, 
+                  then run it in your <strong>Supabase Dashboard → SQL Editor</strong>.
+                </p>
+                <p style={{ fontSize: '0.85rem', color: '#991B1B', marginTop: '0.5rem' }}>
+                  Any orders submitted before the table was created were saved locally on the submitting browser only and won't appear on other devices.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* SQL Setup Modal / Card */}
         {showSqlGuide && (
@@ -272,8 +315,13 @@ CREATE POLICY "Allow public update" ON public.appointments
         {filteredAppointments.length === 0 ? (
           <div style={{ background: 'var(--white)', padding: '3rem', borderRadius: 'var(--radius-xl)', textAlign: 'center', border: '1px solid var(--slate-200)' }}>
             <Clock size={40} color="var(--slate-400)" style={{ margin: '0 auto 1rem auto' }} />
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--slate-700)' }}>No appointment leads found in this filter category</h3>
-            <p style={{ fontSize: '0.875rem', color: 'var(--slate-500)', marginTop: '0.25rem' }}>When someone fills out a contact or quote request form, it will appear here in real-time.</p>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--slate-700)' }}>No appointment leads found{filterStatus !== 'all' ? ' in this filter category' : ''}</h3>
+            <p style={{ fontSize: '0.875rem', color: 'var(--slate-500)', marginTop: '0.25rem' }}>
+              {dbError 
+                ? 'The Supabase table may not be set up yet. Click "Supabase SQL Setup" above to create it.'
+                : 'When someone fills out a contact or quote request form, it will appear here in real-time.'
+              }
+            </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -297,9 +345,9 @@ CREATE POLICY "Allow public update" ON public.appointments
                           <AlertTriangle size={14} /> IMMEDIATE EMERGENCY
                         </span>
                       )}
-                      {app.isLocalFallback && (
+                      {app.isLocal && (
                         <span className="badge" style={{ background: '#FEF3C7', color: '#92400E' }}>
-                          Local Record
+                          Local Record (this browser only)
                         </span>
                       )}
                     </div>

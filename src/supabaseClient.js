@@ -50,28 +50,29 @@ export async function saveAppointment(data) {
 }
 
 /**
- * Fetch all appointments from Supabase (plus any local fallbacks)
+ * Fetch all appointments from Supabase (plus any local fallbacks).
+ * Returns { appointments, supabaseError } so the caller can show connection issues.
  */
 export async function fetchAppointments() {
+  const localData = JSON.parse(localStorage.getItem('pure_plomberie_appointments') || '[]');
+
   try {
     const { data, error } = await supabase
       .from('appointments')
       .select('*')
       .order('created_at', { ascending: false });
 
-    const localData = JSON.parse(localStorage.getItem('pure_plomberie_appointments') || '[]');
-
     if (error) {
       console.warn('Could not fetch from Supabase appointments table:', error.message);
-      return localData;
+      return { appointments: localData, supabaseError: error.message };
     }
 
     // Merge Supabase + Local records
     const combined = [...(data || []), ...localData];
-    return combined;
+    return { appointments: combined, supabaseError: null };
   } catch (err) {
     console.error('Error fetching appointments:', err);
-    return JSON.parse(localStorage.getItem('pure_plomberie_appointments') || '[]');
+    return { appointments: localData, supabaseError: err.message };
   }
 }
 

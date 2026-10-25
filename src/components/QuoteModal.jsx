@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, Calculator, Phone, AlertCircle, Wrench } from 'lucide-react';
-import { saveAppointment } from '../supabaseClient';
+import { saveBooking } from '../supabaseClient';
 
 export default function QuoteModal({ isOpen, onClose, showToast }) {
   const [step, setStep] = useState(1);
@@ -14,6 +14,19 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
     address: '',
     details: ''
   });
+
+  const [honeypot, setHoneypot] = useState('');
+  const [formRenderTime, setFormRenderTime] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormRenderTime(Date.now());
+      setErrorMsg('');
+      setStep(1);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -39,32 +52,93 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (errorMsg) setErrorMsg('');
+  };
+
+  const validateStep2 = () => {
+    const name = formData.name.trim();
+    if (name.length < 2 || name.length > 100) {
+      return 'Please enter a valid name (2 to 100 characters).';
+    }
+
+    const cleanPhone = formData.phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+      return 'Please enter a valid contact phone number (at least 7 to 15 digits).';
+    }
+
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      return 'Please enter a valid email address.';
+    }
+
+    if (formData.address && formData.address.length > 300) {
+      return 'Service address must be under 300 characters.';
+    }
+
+    if (formData.details && formData.details.length > 2000) {
+      return 'Issue notes must be under 2000 characters.';
+    }
+
+    return null;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
 
-    // Client-side rate limiting: restrict submissions to 1 per 30 seconds
+    // 1. Anti-spam honeypot check
+    if (honeypot && honeypot.trim().length > 0) {
+      onClose();
+      return;
+    }
+
+    // 2. Timing check
+    if (Date.now() - formRenderTime < 1500) {
+      setErrorMsg('Please review your quote submission details before sending.');
+      return;
+    }
+
+    // 3. Client-side rate limiting: 30 seconds
     const lastSubmitTime = localStorage.getItem('last_quote_submit');
     const now = Date.now();
     if (lastSubmitTime && now - parseInt(lastSubmitTime, 10) < 30000) {
-      showToast('Please wait 30 seconds before submitting another quote request.');
+      setErrorMsg('Please wait 30 seconds before submitting another quote request.');
       return;
     }
+
+    // 4. Input validation
+    const valError = validateStep2();
+    if (valError) {
+      setErrorMsg(valError);
+      return;
+    }
+
+    setSubmitting(true);
     localStorage.setItem('last_quote_submit', now.toString());
 
     const submissionPayload = {
-      ...formData,
-      estimatedPriceRange: `$${estimated.min} - $${estimated.max}`,
-      submittedAt: new Date().toISOString()
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      email: formData.email.trim().toLowerCase(),
+      serviceNeeded: formData.service,
+      propertyType: formData.propertyType,
+      urgency: formData.urgency,
+      address: formData.address.trim(),
+      message: formData.details.trim(),
+      estimatedPriceRange: `$${estimated.min} - $${estimated.max}`
     };
     
-    // Save to Supabase
-    await saveAppointment(submissionPayload);
+    // Save to Supabase backend
+    const result = await saveBooking(submissionPayload);
+    setSubmitting(false);
 
-    showToast('Quote Saved to Supabase! A dispatch coordinator will call you within 15 minutes.');
-    onClose();
-    setStep(1);
+    if (result.success) {
+      showToast('Quote Request Received! A dispatch coordinator will call you within 15 minutes.');
+      onClose();
+      setStep(1);
+    } else {
+      setErrorMsg(result.error || 'Failed to submit quote request. Please call our 24/7 dispatch phone.');
+    }
   };
 
   return (
@@ -90,7 +164,26 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
           <div style={{ flex: 1, height: 4, borderRadius: 2, background: step >= 2 ? 'var(--blue-600)' : 'var(--slate-200)' }}></div>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        {errorMsg && (
+          <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} noValidate>
+          {/* Honeypot field for bot trapping */}
+          <div style={{ display: 'none', opacity: 0, position: 'absolute', left: '-9999px', pointerEvents: 'none' }} aria-hidden="true">
+            <input 
+              type="text" 
+              name="company_website_hp" 
+              value={honeypot} 
+              onChange={(e) => setHoneypot(e.target.value)} 
+              tabIndex={-1} 
+              autoComplete="off" 
+            />
+          </div>
+
           {step === 1 && (
             <div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -156,6 +249,7 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
                     type="text" 
                     name="name" 
                     required 
+                    maxLength={100}
                     placeholder="e.g. Jean Dupont" 
                     value={formData.name} 
                     onChange={handleChange} 
@@ -170,6 +264,7 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
                       type="tel" 
                       name="phone" 
                       required 
+                      maxLength={25}
                       placeholder="(514) 000-0000" 
                       value={formData.phone} 
                       onChange={handleChange} 
@@ -182,6 +277,7 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
                       type="email" 
                       name="email" 
                       required 
+                      maxLength={255}
                       placeholder="jean@example.ca" 
                       value={formData.email} 
                       onChange={handleChange} 
@@ -195,6 +291,7 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
                   <input 
                     type="text" 
                     name="address" 
+                    maxLength={300}
                     placeholder="e.g. 1450 Peel St, Montreal, QC" 
                     value={formData.address} 
                     onChange={handleChange} 
@@ -207,6 +304,7 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
                   <textarea 
                     name="details" 
                     rows="3" 
+                    maxLength={2000}
                     placeholder="Describe the issue (e.g. water leak under sink, clogged drain...)" 
                     value={formData.details} 
                     onChange={handleChange} 
@@ -225,10 +323,11 @@ export default function QuoteModal({ isOpen, onClose, showToast }) {
                   </button>
                   <button 
                     type="submit" 
+                    disabled={submitting}
                     className="btn btn-primary" 
                     style={{ flex: 2 }}
                   >
-                    Submit Quote Request
+                    {submitting ? 'Submitting...' : 'Submit Quote Request'}
                   </button>
                 </div>
               </div>

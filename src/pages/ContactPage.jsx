@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   MapPin, Phone, Mail, Clock, Send, ShieldCheck, 
   AlertTriangle, CheckCircle2, Navigation, MessageSquare 
 } from 'lucide-react';
-import { saveAppointment } from '../supabaseClient';
+import { saveBooking } from '../supabaseClient';
 
 export default function ContactPage({ showToast }) {
   const [formData, setFormData] = useState({
@@ -15,52 +15,116 @@ export default function ContactPage({ showToast }) {
     message: ''
   });
 
+  // Anti-spam honeypot state (must remain empty for human users)
+  const [honeypot, setHoneypot] = useState('');
+  const [formRenderTime, setFormRenderTime] = useState(0);
+
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    setFormRenderTime(Date.now());
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (formError) setFormError('');
+  };
+
+  const validateInput = () => {
+    const name = formData.name.trim();
+    if (name.length < 2 || name.length > 100) {
+      return 'Please enter a valid full name (2 to 100 characters).';
+    }
+
+    const cleanPhone = formData.phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+      return 'Please enter a valid telephone number (at least 7 to 15 digits).';
+    }
+
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      return 'Please enter a valid email address (e.g. name@example.com).';
+    }
+
+    const message = formData.message.trim();
+    if (message.length < 5 || message.length > 2000) {
+      return 'Please describe your request (between 5 and 2000 characters).';
+    }
+
+    return null;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError('');
 
-    // Client-side rate limiting: restrict submissions to 1 per 30 seconds
-    const lastSubmitTime = localStorage.getItem('last_appointment_submit');
+    // 1. Anti-Spam: Honeypot trap check
+    if (honeypot && honeypot.trim().length > 0) {
+      // Bot filled the hidden honeypot field -> simulate success and drop
+      setSubmitted(true);
+      return;
+    }
+
+    // 2. Anti-Spam: Form completion timing check (bots submit instantaneously)
+    const timeToFill = Date.now() - formRenderTime;
+    if (timeToFill < 1500) {
+      setFormError('Please take a moment to review your details before submitting.');
+      return;
+    }
+
+    // 3. Rate limiting: restrict submissions to 1 per 30 seconds
+    const lastSubmitTime = localStorage.getItem('last_booking_submit');
     const now = Date.now();
     if (lastSubmitTime && now - parseInt(lastSubmitTime, 10) < 30000) {
-      showToast('Please wait 30 seconds before submitting another request.');
+      setFormError('Please wait 30 seconds before submitting another request.');
+      return;
+    }
+
+    // 4. Input validation
+    const validationErr = validateInput();
+    if (validationErr) {
+      setFormError(validationErr);
       return;
     }
 
     setSubmitting(true);
-    localStorage.setItem('last_appointment_submit', now.toString());
+    localStorage.setItem('last_booking_submit', now.toString());
     
     const submissionData = {
-      ...formData,
-      submittedAt: new Date().toISOString(),
-      source: 'Contact Page Web Form'
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      email: formData.email.trim().toLowerCase(),
+      serviceNeeded: formData.serviceNeeded,
+      urgency: formData.urgency,
+      message: formData.message.trim()
     };
 
     // Save to Supabase backend
-    await saveAppointment(submissionData);
+    const result = await saveBooking(submissionData);
 
     setSubmitting(false);
-    setSubmitted(true);
-    showToast('Appointment Request Saved to Supabase! We will contact you within 15 mins.');
 
-    setTimeout(() => {
-      setSubmitted(false);
-      setFormData({
-        name: '',
-        phone: '',
-        email: '',
-        serviceNeeded: 'leak-repair',
-        urgency: 'standard',
-        message: ''
-      });
-    }, 4000);
+    if (result.success) {
+      setSubmitted(true);
+      showToast('Booking Request Saved! A dispatch coordinator will contact you within 15 mins.');
+      setTimeout(() => {
+        setSubmitted(false);
+        setFormData({
+          name: '',
+          phone: '',
+          email: '',
+          serviceNeeded: 'leak-repair',
+          urgency: 'standard',
+          message: ''
+        });
+        setFormRenderTime(Date.now());
+      }, 5000);
+    } else {
+      setFormError(result.error || 'Unable to submit request. Please call our 24/7 dispatch phone directly.');
+    }
   };
 
   return (
@@ -75,7 +139,7 @@ export default function ContactPage({ showToast }) {
             Contact Pure Plomberie Inc
           </h1>
           <p style={{ color: 'var(--slate-200)', fontSize: '1.1rem' }}>
-            Have a question, need an upfront estimate, or facing a plumbing emergency? Our team is available 24/7.
+            Have a question, need an upfront estimate, or facing a plumbing emergency? Our master plumbers are available 24/7.
           </p>
         </div>
       </section>
@@ -90,14 +154,35 @@ export default function ContactPage({ showToast }) {
               <p style={{ color: 'var(--slate-600)' }}>Fill out the form below for fast response & upfront pricing.</p>
             </div>
 
+            {formError && (
+              <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                <span>{formError}</span>
+              </div>
+            )}
+
             {submitted ? (
               <div style={{ background: 'var(--cyan-100)', border: '1px solid var(--cyan-400)', padding: '2.5rem', borderRadius: 'var(--radius-lg)', textAlign: 'center' }}>
                 <CheckCircle2 size={48} color="var(--blue-600)" style={{ margin: '0 auto 1rem auto' }} />
-                <h3 style={{ fontSize: '1.4rem', color: 'var(--navy-900)', marginBottom: '0.5rem' }}>Thank You, {formData.name}!</h3>
-                <p style={{ color: 'var(--slate-700)' }}>Your message has been logged and assigned to a dispatch coordinator.</p>
+                <h3 style={{ fontSize: '1.4rem', color: 'var(--navy-900)', marginBottom: '0.5rem' }}>Thank You!</h3>
+                <p style={{ color: 'var(--slate-700)' }}>Your message has been logged securely and assigned to a dispatch coordinator.</p>
               </div>
             ) : (
-              <form onSubmit={handleSubmit}>
+              <form onSubmit={handleSubmit} noValidate>
+                {/* Honeypot field for bot trapping - invisible to real humans */}
+                <div style={{ display: 'none', opacity: 0, position: 'absolute', left: '-9999px', pointerEvents: 'none' }} aria-hidden="true">
+                  <label htmlFor="website_hp">Leave this field blank</label>
+                  <input 
+                    type="text" 
+                    id="website_hp" 
+                    name="website_hp" 
+                    value={honeypot} 
+                    onChange={(e) => setHoneypot(e.target.value)} 
+                    tabIndex={-1} 
+                    autoComplete="off" 
+                  />
+                </div>
+
                 <div className="form-grid">
                   <div className="form-group">
                     <label>Full Name *</label>
@@ -105,6 +190,7 @@ export default function ContactPage({ showToast }) {
                       type="text" 
                       name="name" 
                       required 
+                      maxLength={100}
                       placeholder="e.g. Jean Dupont" 
                       value={formData.name} 
                       onChange={handleChange} 
@@ -118,6 +204,7 @@ export default function ContactPage({ showToast }) {
                       type="tel" 
                       name="phone" 
                       required 
+                      maxLength={25}
                       placeholder="(514) 555-7873" 
                       value={formData.phone} 
                       onChange={handleChange} 
@@ -131,6 +218,7 @@ export default function ContactPage({ showToast }) {
                       type="email" 
                       name="email" 
                       required 
+                      maxLength={255}
                       placeholder="jean.dupont@example.ca" 
                       value={formData.email} 
                       onChange={handleChange} 
@@ -176,16 +264,22 @@ export default function ContactPage({ showToast }) {
                       name="message" 
                       rows="4" 
                       required 
+                      maxLength={2000}
                       placeholder="Tell us about your plumbing project, leak symptoms, or requested service time..." 
                       value={formData.message} 
                       onChange={handleChange} 
-                      className="form-input"
+                      className="form-input" 
                     ></textarea>
                   </div>
                 </div>
 
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '1rem' }}>
-                  <Send size={18} /> Submit Message (Console Log)
+                <button 
+                  type="submit" 
+                  disabled={submitting} 
+                  className="btn btn-primary" 
+                  style={{ width: '100%', padding: '1rem', minHeight: 48 }}
+                >
+                  <Send size={18} /> {submitting ? 'Submitting Request...' : 'Send Message to Dispatch'}
                 </button>
               </form>
             )}

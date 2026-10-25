@@ -92,7 +92,7 @@ export default function Footer({ setCurrentPage, openQuoteModal }) {
               <span 
                 className="watermark-author-link" 
                 onClick={() => handleNavClick('admin')}
-                title="Admin Portal"
+                title="Click to Open Admin Portal"
               >
                 Ghazanfar
               </span>
@@ -102,6 +102,14 @@ export default function Footer({ setCurrentPage, openQuoteModal }) {
             <a href="#privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a>
             <a href="#terms" onClick={(e) => e.preventDefault()}>Terms of Service</a>
             <a href="#sitemap" onClick={(e) => e.preventDefault()}>Sitemap</a>
+            <a 
+              href="/admin" 
+              onClick={(e) => { e.preventDefault(); handleNavClick('admin'); }}
+              style={{ opacity: 0.6, fontSize: '0.8rem', color: 'var(--slate-400)' }}
+              title="Admin Portal Login"
+            >
+              Admin Portal
+            </a>
           </div>
         </div>
       </div>

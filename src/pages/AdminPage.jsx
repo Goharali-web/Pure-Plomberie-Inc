@@ -14,7 +14,7 @@ import {
 export default function AdminPage() {
   const [session, setSession] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState('ga480926@gmail.com');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -178,6 +178,11 @@ CREATE TRIGGER tr_protect_auth_signups
   useEffect(() => {
     let mounted = true;
 
+    // Safety timeout: never leave user stuck on checking spinner
+    const timer = setTimeout(() => {
+      if (mounted) setAuthChecking(false);
+    }, 1500);
+
     async function initSession() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -209,6 +214,7 @@ CREATE TRIGGER tr_protect_auth_signups
 
     return () => {
       mounted = false;
+      clearTimeout(timer);
       subscription?.unsubscribe();
     };
   }, []);
